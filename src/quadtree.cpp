@@ -35,6 +35,7 @@
 #include <R_ext/BLAS.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <cmath>
 #include <Rcpp.h>
 #include "quadtree.h"
 

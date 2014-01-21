@@ -257,7 +257,7 @@ double TSNE::evaluateError(double* P, double* Y, int N) {
     
     // Compute the squared Euclidean distance matrix
     double* DD = (double*) malloc(N * N * sizeof(double));
-    double* Q = (double*) malloc(N * N * sizeof(double));
+    double* Q  = (double*) malloc(N * N * sizeof(double));
     if(DD == NULL || Q == NULL) { Rcpp::stop("Memory allocation failed!\n"); }
     computeSquaredEuclideanDistance(Y, N, 2, DD);
     
@@ -314,6 +314,9 @@ double TSNE::evaluateError(int* row_P, int* col_P, double* val_P, double* Y, int
             C += val_P[i] * log((val_P[i] + FLT_MIN) / (Q + FLT_MIN));
         }
     }
+    
+    // Clean up memory
+    delete tree;
     return C;
 }
 
