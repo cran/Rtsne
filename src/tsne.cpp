@@ -138,7 +138,7 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
         else computeGradient(P, row_P, col_P, val_P, Y, N, no_dims, dY, theta);
         
         // Update gains
-        for(int i = 0; i < N * no_dims; i++) gains[i] = (sign(dY[i]) != sign(uY[i])) ? (gains[i] + .2) : (gains[i] * .8);
+        for(int i = 0; i < N * no_dims; i++) gains[i] = (sign_tsne(dY[i]) != sign_tsne(uY[i])) ? (gains[i] + .2) : (gains[i] * .8);
         for(int i = 0; i < N * no_dims; i++) if(gains[i] < .01) gains[i] = .01;
             
         // Perform gradient update (with momentum and gains)
