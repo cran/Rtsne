@@ -4,7 +4,7 @@ using namespace Rcpp;
 
 // Function that runs the Barnes-Hut implementation of t-SNE
 // [[Rcpp::export]]
-Rcpp::List Rtsne_cpp(SEXP X_in, int no_dims_in, double perplexity_in, double theta_in) {
+Rcpp::List Rtsne_cpp(SEXP X_in, int no_dims_in, double perplexity_in, double theta_in, bool verbose, int max_iter, bool distance_precomputed) {
 
   Rcpp::NumericMatrix X(X_in); 
 
@@ -38,17 +38,18 @@ Rcpp::List Rtsne_cpp(SEXP X_in, int no_dims_in, double perplexity_in, double the
     
     // Make dummy landmarks
     N = origN;
-    Rprintf("Read the %i x %i data matrix successfully!\n", N, D);
+    if (verbose) Rprintf("Read the %i x %i data matrix successfully!\n", N, D);
     int* landmarks = (int*) malloc(N * sizeof(int));
     if(landmarks == NULL) { Rcpp::stop("Memory allocation failed!\n"); }
     for(int n = 0; n < N; n++) landmarks[n] = n;
 
 		double* Y = (double*) malloc(N * no_dims * sizeof(double));
 		double* costs = (double*) calloc(N, sizeof(double));
+		double* itercosts = (double*) calloc((int)(ceil(max_iter/50.0)), sizeof(double));
     if(Y == NULL || costs == NULL) { Rcpp::stop("Memory allocation failed!\n"); }
     
     // Run tsne
-		tsne->run(data, N, D, Y, no_dims, perplexity, theta);
+		tsne->run(data, N, D, Y, no_dims, perplexity, theta, verbose, max_iter, costs, distance_precomputed, itercosts);
 
   	// Save the results
     Rcpp::NumericMatrix Yr(N,no_dims);
@@ -62,6 +63,11 @@ Rcpp::List Rtsne_cpp(SEXP X_in, int no_dims_in, double perplexity_in, double the
     for (int i = 0; i < N; i++){
       costsr(i) = costs[i];
     }
+    Rcpp::NumericVector itercostsr((int)(ceil(max_iter/50.0)));
+    for (int i = 0; i < (int)(ceil(max_iter/50.0)); i++){
+      itercostsr(i) = itercosts[i];
+    }
+    
     
     free(data); data = NULL;
   	free(Y); Y = NULL;
@@ -69,6 +75,6 @@ Rcpp::List Rtsne_cpp(SEXP X_in, int no_dims_in, double perplexity_in, double the
 		free(landmarks); landmarks = NULL;
     delete(tsne);
     
-    Rcpp::List output = Rcpp::List::create(Rcpp::_["theta"]=theta, Rcpp::_["perplexity"]=perplexity, Rcpp::_["N"]=N,Rcpp::_["origD"]=D,Rcpp::_["Y"]=Yr, Rcpp::_["costs"]=costsr);
+    Rcpp::List output = Rcpp::List::create(Rcpp::_["theta"]=theta, Rcpp::_["perplexity"]=perplexity, Rcpp::_["N"]=N,Rcpp::_["origD"]=D,Rcpp::_["Y"]=Yr, Rcpp::_["costs"]=costsr, Rcpp::_["itercosts"]=itercostsr);
     return output; 
 }
