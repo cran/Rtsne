@@ -52,7 +52,7 @@ extern "C" {
 using namespace std;
 
 // Perform t-SNE
-void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, bool verbose, int max_iter, double* cost, bool distance_precomputed, double* itercost) {
+void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexity, double theta, bool verbose, int max_iter, double* cost, bool distance_precomputed, double* itercost, bool init) {
     
     // Determine whether we are using an exact algorithm
     if(N - 1 < 3 * perplexity) { Rcpp::stop("Perplexity too large for the number of data points!\n"); }
@@ -65,6 +65,11 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
 	  int stop_lying_iter = 250, mom_switch_iter = 250;
 	  double momentum = .5, final_momentum = .8;
 	  double eta = 200.0;
+    
+    if (init) {
+      stop_lying_iter = 0; 
+      mom_switch_iter  = 0;
+    }
     
     // Allocate some memory
     double* dY    = (double*) malloc(N * no_dims * sizeof(double));
@@ -127,8 +132,9 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
     if(exact) { for(int i = 0; i < N * N; i++)        P[i] *= 12.0; }
     else {      for(int i = 0; i < row_P[N]; i++) val_P[i] *= 12.0; }
 
-	// Initialize solution (randomly)
-	for(int i = 0; i < N * no_dims; i++) Y[i] = randn() * .0001;
+	// Initialize solution (randomly), if not already done
+	if (!init) { for(int i = 0; i < N * no_dims; i++) Y[i] = randn() * .0001; }
+
 	
 	// Perform main training loop
   if (verbose) {
@@ -137,7 +143,15 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
   }
   start = clock();
   int costi = 0; //iterator for saving the total costs for the iterations
+  
 	for(int iter = 0; iter < max_iter; iter++) {
+        
+        // Stop lying about the P-values after a while, and switch momentum
+        if(iter == stop_lying_iter) {
+          if(exact) { for(int i = 0; i < N * N; i++)        P[i] /= 12.0; }
+          else      { for(int i = 0; i < row_P[N]; i++) val_P[i] /= 12.0; }
+        }
+        if(iter == mom_switch_iter) momentum = final_momentum;
         
         // Compute (approximate) gradient
         if(exact) computeExactGradient(P, Y, N, no_dims, dY);
@@ -149,20 +163,13 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
             
         // Perform gradient update (with momentum and gains)
         for(int i = 0; i < N * no_dims; i++) uY[i] = momentum * uY[i] - eta * gains[i] * dY[i];
-		for(int i = 0; i < N * no_dims; i++)  Y[i] = Y[i] + uY[i];
+		    for(int i = 0; i < N * no_dims; i++)  Y[i] = Y[i] + uY[i];
         
         // Make solution zero-mean
-		zeroMean(Y, N, no_dims);
-        
-        // Stop lying about the P-values after a while, and switch momentum
-        if(iter == stop_lying_iter) {
-            if(exact) { for(int i = 0; i < N * N; i++)        P[i] /= 12.0; }
-            else      { for(int i = 0; i < row_P[N]; i++) val_P[i] /= 12.0; }
-        }
-        if(iter == mom_switch_iter) momentum = final_momentum;
+		    zeroMean(Y, N, no_dims);
         
         // Print out progress
-        if((iter > 0 && iter % 50 == 0) || iter == max_iter - 1) {
+        if((iter > 0 && (iter+1) % 50 == 0) || iter == max_iter - 1) {
             end = clock();
             double C = .0;
             if(exact) C = evaluateError(P, Y, N, no_dims);
@@ -172,7 +179,7 @@ void TSNE::run(double* X, int N, int D, double* Y, int no_dims, double perplexit
             } 
             else {
                 total_time += (float) (end - start) / CLOCKS_PER_SEC;
-                if (verbose) Rprintf("Iteration %d: error is %f (50 iterations in %4.2f seconds)\n", iter, C, (float) (end - start) / CLOCKS_PER_SEC);
+                if (verbose) Rprintf("Iteration %d: error is %f (50 iterations in %4.2f seconds)\n", iter+1, C, (float) (end - start) / CLOCKS_PER_SEC);
             }
             itercost[costi] = C;
             itercost++;
@@ -414,14 +421,11 @@ void TSNE::computeGaussianPerplexity(double* X, int N, int D, double* P, double 
 	  computeSquaredEuclideanDistance(X, N, D, DD);
 	}
 	
-  //Rprintf(" %4.4f \n", DD[0]);
-  //Rprintf(" %4.4f \n", DD[1]);
-  //Rprintf(" %4.4f \n", DD[2]);
-  // 	
-  //Rprintf(" %4.4f \n", X[0]);
-  //Rprintf(" %4.4f \n", X[1]);
-  //Rprintf(" %4.4f \n", X[2]);
-	
+	// For debugging purposes:
+// 	for (int n=0; n<N*N; n++) {
+//     Rprintf(" %4.4f \n", DD[n]);
+// 	}
+
 	// Compute the Gaussian kernel row by row
 	for(int n = 0; n < N; n++) {
         
@@ -535,13 +539,13 @@ void TSNE::computeGaussianPerplexity(double* X, int N, int D, int** _row_P, int*
         while(!found && iter < 200) {
           
           // Compute Gaussian kernel row
-          for(int m = 0; m < K; m++) cur_P[m] = exp(-beta * distances[m + 1]);
+          for(int m = 0; m < K; m++) cur_P[m] = exp(-beta * distances[m + 1] * distances[m + 1]);
           
           // Compute entropy of current row
           sum_P = DBL_MIN;
           for(int m = 0; m < K; m++) sum_P += cur_P[m];
           double H = .0;
-          for(int m = 0; m < K; m++) H += beta * (distances[m + 1] * cur_P[m]);
+          for(int m = 0; m < K; m++) H += beta * (distances[m + 1] * distances[m + 1] * cur_P[m]);
           H = (H / sum_P) + log(sum_P);
           
           // Evaluate whether the entropy is within the tolerance level
@@ -613,13 +617,13 @@ void TSNE::computeGaussianPerplexity(double* X, int N, int D, int** _row_P, int*
         while(!found && iter < 200) {
           
           // Compute Gaussian kernel row
-          for(int m = 0; m < K; m++) cur_P[m] = exp(-beta * distances[m + 1]);
+          for(int m = 0; m < K; m++) cur_P[m] = exp(-beta * distances[m + 1] *distances[m + 1]);
           
           // Compute entropy of current row
           sum_P = DBL_MIN;
           for(int m = 0; m < K; m++) sum_P += cur_P[m];
           double H = .0;
-          for(int m = 0; m < K; m++) H += beta * (distances[m + 1] * cur_P[m]);
+          for(int m = 0; m < K; m++) H += beta * (distances[m + 1] * distances[m + 1] * cur_P[m]);
           H = (H / sum_P) + log(sum_P);
           
           // Evaluate whether the entropy is within the tolerance level
