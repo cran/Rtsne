@@ -2,10 +2,10 @@
 #' 
 #' Wrapper for the C++ implementation of Barnes-Hut t-Distributed Stochastic Neighbor Embedding. t-SNE is a method for constructing a low dimensional embedding of high-dimensional data, distances or similarities. Exact t-SNE can be computed by setting theta=0.0. 
 #' 
-#' Given a distance matrix \eqn{D} between input objects (which by default, is the euclidean distances between two objects), we calculate a similarity score in the original space p_ij. \deqn{ p_{j | i} = \frac{\exp(-\|D_{ij}\|^2 / 2 \sigma_i^2)}{\sum_{k \neq i} \exp(-\|D_{ij}\|^2 / 2 \sigma_i^2)} } which is then symmetrized using: \deqn{ p_{i j}=\frac{p_{j|i} + p_{i|j}}{2n}}. The \eqn{\sigma} for each object is chosen in such a way that the perplexity of p_{j|i} has a value that is close to the user defined perplexity. This value effectively controls how many nearest neighbours are taken into account when constructing the embedding in the low-dimensional space.
+#' Given a distance matrix \eqn{D} between input objects (which by default, is the euclidean distances between two objects), we calculate a similarity score in the original space p_ij. \deqn{ p_{j | i} = \frac{\exp(-\|D_{ij}\|^2 / 2 \sigma_i^2)}{\sum_{k \neq i} \exp(-\|D_{ij}\|^2 / 2 \sigma_i^2)} } which is then symmetrized using: \deqn{ p_{i j}=\frac{p_{j|i} + p_{i|j}}{2n}.} The \eqn{\sigma} for each object is chosen in such a way that the perplexity of p_{j|i} has a value that is close to the user defined perplexity. This value effectively controls how many nearest neighbours are taken into account when constructing the embedding in the low-dimensional space.
 #' For the low-dimensional space we use the Cauchy distribution (t-distribution with one degree of freedom) as the distribution of the distances to neighbouring objects:
-#' \deqn{ q_{i j} = \frac{(1+ \| y_i-y_j\|^2)^{-1}}{\sum_{k \neq l} 1+ \| y_k-y_l\|^2)^{-1}}}. 
-#' By changing the location of the objects y in the embedding to minimize the Kullback-Leibler divergence between these two distributions \eqn{ q_{i j}} and \eqn{ p_{i j}}, we create a map that focusses on small-scale structure, due to the assymetry of the KL-divergence. The t-distribution is chosen to avoid the crowding problem: in the original high dimensional space, there are potentially many equidistant objects with moderate distance from a particular object, more than can be accounted for in the low dimensional representation. The t-distribution makes sure that these objects are more spread out in the new representation.
+#' \deqn{ q_{i j} = \frac{(1+ \| y_i-y_j\|^2)^{-1}}{\sum_{k \neq l} 1+ \| y_k-y_l\|^2)^{-1}}.} 
+#' By changing the location of the objects y in the embedding to minimize the Kullback-Leibler divergence between these two distributions \eqn{ q_{i j}} and \eqn{ p_{i j}}, we create a map that focusses on small-scale structure, due to the asymmetry of the KL-divergence. The t-distribution is chosen to avoid the crowding problem: in the original high dimensional space, there are potentially many equidistant objects with moderate distance from a particular object, more than can be accounted for in the low dimensional representation. The t-distribution makes sure that these objects are more spread out in the new representation.
 #' 
 #' For larger datasets, a problem with the a simple gradient descent to minimize the Kullback-Leibler divergence is the computational complexity of each gradient step (which is \eqn{O(n^2)}). The Barnes-Hut implementation of the algorithm attempts to mitigate this problem using two tricks: (1) approximating small similarities by 0 in the \eqn{p_{ij}} distribution, where the non-zero entries are computed by finding 3*perplexity nearest neighbours using an efficient tree search. (2) Using the Barnes-Hut algorithm in the computation of the gradient which approximates large distance similarities using a quadtree. This approximation is controlled by the \code{theta} parameter, with smaller values leading to more exact approximations. When \code{theta=0.0}, the implementation uses a standard t-SNE implementation. The Barnes-Hut approximation leads to a \eqn{O(n log(n))} computational complexity for each iteration.
 #' 
@@ -28,7 +28,7 @@
 #' @param max_iter integer; Number of iterations (default: 1000)
 #' @param verbose logical; Whether progress updates should be printed (default: global "verbose" option, or FALSE if that is not set)
 #' @param ... Other arguments that can be passed to Rtsne
-#' @param is_distance logical; Indicate whether X is a distance matrix (experimental, default: FALSE)
+#' @param is_distance logical; Indicate whether X is a distance matrix (default: FALSE)
 #' @param Y_init matrix; Initial locations of the objects. If NULL, random initialization will be used (default: NULL). Note that when using this, the initial stage with exaggerated perplexity values and a larger momentum term will be skipped.
 #' @param pca_center logical; Should data be centered before pca is applied? (default: TRUE)
 #' @param pca_scale logical; Should data be scaled before pca is applied? (default: FALSE)
@@ -39,7 +39,7 @@
 #' @param final_momentum numeric; Momentum used in the final part of the optimization (default: 0.8)
 #' @param eta numeric; Learning rate (default: 200.0)
 #' @param exaggeration_factor numeric; Exaggeration factor used to multiply the P matrix in the first part of the optimization (default: 12.0)
-#' @param num_threads integer; Number of threads to use using OpenMP, default 1. 0 corresponds to using all available cores
+#' @param num_threads integer; Number of threads to use when using OpenMP, default is 1. Setting to 0 corresponds to detecting and using all available cores
 #' 
 #' @return List with the following elements:
 #' \item{Y}{Matrix containing the new representations for the objects}
@@ -134,6 +134,7 @@ Rtsne.default <- function(X, dims=2, initial_dims=50,
   if (is_distance & !(is.matrix(X) & (nrow(X)==ncol(X)))) { stop("Input is not an accepted distance matrix") }
   if (!(is.logical(pca_center) && is.logical(pca_scale)) ) { stop("pca_center and pca_scale should be TRUE or FALSE")}
   if (!is.wholenumber(initial_dims) || initial_dims<=0) { stop("Incorrect initial dimensionality.")}
+  if (!is.wholenumber(num_threads) || num_threads<0) { stop("Incorrect number of threads.")}
   tsne.args <- .check_tsne_params(nrow(X), dims=dims, perplexity=perplexity, theta=theta, max_iter=max_iter, verbose=verbose, 
         Y_init=Y_init, stop_lying_iter=stop_lying_iter, mom_switch_iter=mom_switch_iter, 
         momentum=momentum, final_momentum=final_momentum, eta=eta, exaggeration_factor=exaggeration_factor)
@@ -171,7 +172,9 @@ Rtsne.default <- function(X, dims=2, initial_dims=50,
   out$Y <- t(out$Y) # Transposing back.
   info <- list(N=ncol(X))
   if (!is_distance) { out$origD <- nrow(X) } # 'origD' is unknown for distance matrices.
-  c(info, out, .clear_unwanted_params(tsne.args))
+  out <- c(info, out, .clear_unwanted_params(tsne.args))
+  class(out) <- c("Rtsne","list")
+  out
 }
 
 #' @describeIn Rtsne tsne on given dist object
